@@ -76,5 +76,58 @@ networks:
       config:
         - subnet: 10.21.0.0/24
 
+  gitlab_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.31.0.0/24
+
+  # ── GitLab CE ─────────────────────────────────────────────────────────────
+  # Runs on its own network — completely isolated from the 3-tier app.
+  # Access: http://localhost:8929  (root / Password1234! on first boot)
+  # SSH clone: ssh://git@localhost:2222
+  # First startup takes ~3 minutes for GitLab to fully initialise.
+  gitlab:
+    image: gitlab/gitlab-ce:17.11.1-ce.0
+    container_name: gitlab
+    hostname: localhost
+    environment:
+      GITLAB_OMNIBUS_CONFIG: |
+        external_url 'http://localhost:${GITLAB_PORT:-8929}'
+        gitlab_rails['initial_root_password'] = '${GITLAB_ROOT_PASSWORD:-Password1234!}'
+        gitlab_rails['gitlab_shell_ssh_port'] = ${GITLAB_SSH_PORT:-2222}
+        # Disable features not needed for a local learning environment
+        prometheus_monitoring['enable'] = false
+        grafana['enable'] = false
+    ports:
+      - "${GITLAB_PORT:-8929}:${GITLAB_PORT:-8929}"
+      - "${GITLAB_SSH_PORT:-2222}:22"
+    volumes:
+      - gitlab_config:/etc/gitlab
+      - gitlab_logs:/var/log/gitlab
+      - gitlab_data:/var/opt/gitlab
+    networks:
+      - gitlab_net
+    shm_size: "256m"
+
+  # ── GitLab Runner ─────────────────────────────────────────────────────────
+  # Executes the .gitlab-ci.yml pipeline jobs.
+  # Needs docker socket so it can run docker:26-dind builds.
+  gitlab-runner:
+    image: gitlab/gitlab-runner:v17.11.1
+    container_name: gitlab-runner
+    restart: unless-stopped
+    volumes:
+      - gitlab_runner_config:/etc/gitlab-runner
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - gitlab_net
+    depends_on:
+      - gitlab
+
 volumes:
   db_data:   # named volume keeps data across container restarts
+  gitlab_config:
+  gitlab_logs:
+  gitlab_data:
+  gitlab_runner_config:

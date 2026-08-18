@@ -16,9 +16,9 @@ stages:
   - deploy
 
 variables:
-  GITLAB_REGISTRY: "${GITLAB_HOST:-172.16.10.214}:${GITLAB_REGISTRY_PORT:-5050}"
-  FRONTEND_IMAGE:  "${GITLAB_HOST:-172.16.10.214}:${GITLAB_REGISTRY_PORT:-5050}/root/devops-beginner-multi-tier/frontend"
-  BACKEND_IMAGE:   "${GITLAB_HOST:-172.16.10.214}:${GITLAB_REGISTRY_PORT:-5050}/root/devops-beginner-multi-tier/backend"
+  GITLAB_REGISTRY: "${GITLAB_HOST:-172.16.10.214}:${GITLAB_REGISTRY_PORT:-5051}"
+  FRONTEND_IMAGE:  "${GITLAB_HOST:-172.16.10.214}:${GITLAB_REGISTRY_PORT:-5051}/root/devops-beginner-multi-tier/frontend"
+  BACKEND_IMAGE:   "${GITLAB_HOST:-172.16.10.214}:${GITLAB_REGISTRY_PORT:-5051}/root/devops-beginner-multi-tier/backend"
   IMAGE_TAG:       "$CI_COMMIT_SHORT_SHA"
 
 # ── Stage 1: Build ────────────────────────────────────────────────────────────

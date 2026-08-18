@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: frontend
-          image: registry.gitlab.com/root/devops-beginner-multi-tier/frontend:latest
+          image: 172.16.10.214:5051/root/devops-beginner-multi-tier/frontend:latest
           ports:
             - containerPort: 80
           readinessProbe:

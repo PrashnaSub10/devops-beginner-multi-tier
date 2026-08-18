@@ -75,11 +75,11 @@ services:
         gitlab_rails['gitlab_shell_ssh_port'] = ${GITLAB_SSH_PORT:-2224}
         prometheus_monitoring['enable'] = false
         registry['enable'] = true
-        registry_external_url 'http://${GITLAB_HOST:-172.16.10.214}:${GITLAB_REGISTRY_PORT:-5050}'
+        registry_external_url 'http://${GITLAB_HOST:-172.16.10.214}:${GITLAB_REGISTRY_PORT:-5051}'
     ports:
       - "${GITLAB_PORT:-8929}:${GITLAB_PORT:-8929}"
       - "${GITLAB_SSH_PORT:-2224}:22"
-      - "${GITLAB_REGISTRY_PORT:-5050}:${GITLAB_REGISTRY_PORT:-5050}"
+      - "${GITLAB_REGISTRY_PORT:-5051}:${GITLAB_REGISTRY_PORT:-5051}"
     volumes:
       - gitlab_config:/etc/gitlab
       - gitlab_logs:/var/log/gitlab

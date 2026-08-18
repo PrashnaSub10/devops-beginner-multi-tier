@@ -24,8 +24,6 @@ variables:
 build:
   stage: build
   image: docker:26
-  services:
-    - docker:26-dind
   script:
     - docker build -t $FRONTEND_IMAGE:$IMAGE_TAG ./frontend
     - docker build -t $BACKEND_IMAGE:$IMAGE_TAG  ./backend
@@ -41,8 +39,6 @@ build:
 push:
   stage: push
   image: docker:26
-  services:
-    - docker:26-dind
   needs: ["build"]
   script:
     - docker load -i frontend.tar

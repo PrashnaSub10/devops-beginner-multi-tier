@@ -8,6 +8,7 @@
 # Networks:
 #   public_net  — host ↔ frontend only
 #   app_net     — frontend ↔ backend ↔ db  (internal, not reachable from host)
+#   gitlab_net  — gitlab ↔ gitlab-runner   (isolated from the 3-tier app)
 # ─────────────────────────────────────────────────────────────────────────────
 
 services:
@@ -25,7 +26,7 @@ services:
       - backend-service
 
   # ── Tier 2: Logic ─────────────────────────────────────────────────────────
-  # Run multiple replicas with:  docker compose up --scale backend=2
+  # Run multiple replicas with:  docker compose up --scale backend-service=2
   # The service name "backend-service" is what nginx.conf proxies to.
   backend-service:
     build: ./backend
@@ -44,9 +45,7 @@ services:
       - db
 
   # ── Tier 3: Data ──────────────────────────────────────────────────────────
-  # No ports: exposed to host — only reachable from app_net.
-  # This is what "externalising the database" means at the network level:
-  # the data tier lives on a separate failure domain from the app tier.
+  # No ports exposed to host — only reachable from app_net.
   db:
     build: ./db
     environment:
@@ -59,28 +58,6 @@ services:
       - db_data:/var/lib/postgresql/data
     networks:
       - app_net
-
-networks:
-  public_net:
-    driver: bridge
-    ipam:
-      config:
-        - subnet: 10.11.0.0/24
-
-  # internal: true means Docker will not add a default gateway route,
-  # so containers on this network cannot reach the internet directly.
-  app_net:
-    driver: bridge
-    internal: true
-    ipam:
-      config:
-        - subnet: 10.21.0.0/24
-
-  gitlab_net:
-    driver: bridge
-    ipam:
-      config:
-        - subnet: 10.31.0.0/24
 
   # ── GitLab CE ─────────────────────────────────────────────────────────────
   # Runs on its own network — completely isolated from the 3-tier app.
@@ -96,7 +73,6 @@ networks:
         external_url 'http://localhost:${GITLAB_PORT:-8929}'
         gitlab_rails['initial_root_password'] = '${GITLAB_ROOT_PASSWORD:-Password1234!}'
         gitlab_rails['gitlab_shell_ssh_port'] = ${GITLAB_SSH_PORT:-2222}
-        # Disable features not needed for a local learning environment
         prometheus_monitoring['enable'] = false
         grafana['enable'] = false
     ports:
@@ -125,8 +101,30 @@ networks:
     depends_on:
       - gitlab
 
+networks:
+  public_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.11.0.0/24
+
+  # internal: true means Docker will not add a default gateway route,
+  # so containers on this network cannot reach the internet directly.
+  app_net:
+    driver: bridge
+    internal: true
+    ipam:
+      config:
+        - subnet: 10.21.0.0/24
+
+  gitlab_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.31.0.0/24
+
 volumes:
-  db_data:   # named volume keeps data across container restarts
+  db_data:
   gitlab_config:
   gitlab_logs:
   gitlab_data:

@@ -12,11 +12,12 @@
 set -euo pipefail
 
 : "${RUNNER_TOKEN:?Set RUNNER_TOKEN before running this script}"
+GITLAB_HOST="${GITLAB_HOST:-172.16.10.214}"
 GITLAB_PORT="${GITLAB_PORT:-8929}"
 
 docker exec gitlab-runner gitlab-runner register \
   --non-interactive \
-  --url "http://gitlab:${GITLAB_PORT}" \
+  --url "http://${GITLAB_HOST}:${GITLAB_PORT}" \
   --token "${RUNNER_TOKEN}" \
   --executor "docker" \
   --docker-image "docker:26" \

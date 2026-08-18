@@ -12,7 +12,11 @@
 set -euo pipefail
 
 : "${RUNNER_TOKEN:?Set RUNNER_TOKEN before running this script}"
-GITLAB_HOST="${GITLAB_HOST:-172.16.10.214}"
+GITLAB_HOST="${GITLAB_HOST:-}"
+if [[ -z "$GITLAB_HOST" ]]; then
+  echo "ERROR: GITLAB_HOST is not set. Export it or add it to your .env file."
+  exit 1
+fi
 GITLAB_PORT="${GITLAB_PORT:-8929}"
 
 docker exec gitlab-runner gitlab-runner register \

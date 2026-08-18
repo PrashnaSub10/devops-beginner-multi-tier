@@ -1,0 +1,21 @@
+# ingressClassName: traefik  ← K3s ships Traefik by default.
+# If you copy this from a tutorial written for vanilla K8s, it will say "nginx"
+# and silently do nothing on K3s. Check installed classes: kubectl get ingressclass
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: three-tier-ingress
+  namespace: three-tier
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: app.example.com   # replace with your actual hostname or use kubectl port-forward for local testing
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend-service
+                port:
+                  number: 80

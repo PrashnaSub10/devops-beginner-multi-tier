@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>3-Tier DevOps Demo</title>
+  <style>body{font-family:sans-serif;max-width:600px;margin:2rem auto}pre{background:#f4f4f4;padding:1rem}</style>
+</head>
+<body>
+  <h1>3-Tier DevOps Demo</h1>
+  <p>This page is served by the <strong>frontend</strong> (Nginx).<br>
+     The button calls the <strong>backend</strong> API, which reads from the <strong>database</strong>.</p>
+  <button onclick="loadUsers()">Load Users</button>
+  <button onclick="addUser()">Add Sample User</button>
+  <pre id="out">—</pre>
+  <script>
+    async function loadUsers() {
+      const r = await fetch("/api/users");
+      document.getElementById("out").textContent = JSON.stringify(await r.json(), null, 2);
+    }
+    async function addUser() {
+      const r = await fetch("/api/users", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({name: "Demo User", email: `demo${Date.now()}@example.com`})
+      });
+      document.getElementById("out").textContent = JSON.stringify(await r.json(), null, 2);
+    }
+  </script>
+</body>
+</html>

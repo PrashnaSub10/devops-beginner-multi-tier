@@ -1,0 +1,79 @@
+# GitLab CI/CD pipeline — runs on every push to main.
+#
+# Three stages mirror the three questions every deployment must answer:
+#   build  → "does the code produce a valid image?"
+#   push   → "is the image stored somewhere the cluster can pull it?"
+#   deploy → "is the cluster running the new image?"
+#
+# Required GitLab CI/CD Variables (Settings → CI/CD → Variables):
+#   KUBECONFIG  (File type) — kubeconfig for the K3s cluster
+#   KUBE_CONTEXT            — context name inside that kubeconfig
+#   DB_PASSWORD (Masked)    — injected into the K8s Secret at deploy time
+
+stages:
+  - build
+  - push
+  - deploy
+
+variables:
+  FRONTEND_IMAGE: "$CI_REGISTRY_IMAGE/frontend"
+  BACKEND_IMAGE:  "$CI_REGISTRY_IMAGE/backend"
+  IMAGE_TAG:      "$CI_COMMIT_SHORT_SHA"   # immutable tag — enables clean rollbacks
+
+# ── Stage 1: Build ────────────────────────────────────────────────────────────
+build:
+  stage: build
+  image: docker:26
+  services:
+    - docker:26-dind
+  script:
+    - docker build -t $FRONTEND_IMAGE:$IMAGE_TAG ./frontend
+    - docker build -t $BACKEND_IMAGE:$IMAGE_TAG  ./backend
+    - docker save $FRONTEND_IMAGE:$IMAGE_TAG -o frontend.tar
+    - docker save $BACKEND_IMAGE:$IMAGE_TAG  -o backend.tar
+  artifacts:
+    paths: [frontend.tar, backend.tar]
+    expire_in: 1 hour
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+
+# ── Stage 2: Push ─────────────────────────────────────────────────────────────
+push:
+  stage: push
+  image: docker:26
+  services:
+    - docker:26-dind
+  needs: ["build"]
+  script:
+    - docker load -i frontend.tar
+    - docker load -i backend.tar
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin $CI_REGISTRY
+    - docker push $FRONTEND_IMAGE:$IMAGE_TAG
+    - docker push $BACKEND_IMAGE:$IMAGE_TAG
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+
+# ── Stage 3: Deploy ───────────────────────────────────────────────────────────
+deploy:
+  stage: deploy
+  image: bitnami/kubectl:1.31
+  needs: ["push"]
+  environment:
+    name: production
+  script:
+    # Inject the real DB password into the secret manifest before applying.
+    - sed -i "s/REPLACE_AT_DEPLOY_TIME/${DB_PASSWORD}/" k8s/backend-secret.yaml
+    - kubectl apply -f k8s/namespace.yaml
+    - kubectl apply -f k8s/backend-secret.yaml
+    - kubectl apply -f k8s/external-db-service.yaml
+    - kubectl apply -f k8s/backend.yaml
+    - kubectl apply -f k8s/frontend.yaml
+    - kubectl apply -f k8s/ingress.yaml
+    # Roll out the new image tag — this is what actually triggers a new pod rollout.
+    - kubectl -n three-tier set image deployment/backend  backend=$BACKEND_IMAGE:$IMAGE_TAG
+    - kubectl -n three-tier set image deployment/frontend frontend=$FRONTEND_IMAGE:$IMAGE_TAG
+    # Wait for rollout to complete before the pipeline reports success.
+    - kubectl -n three-tier rollout status deployment/backend  --timeout=120s
+    - kubectl -n three-tier rollout status deployment/frontend --timeout=120s
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"

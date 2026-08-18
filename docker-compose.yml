@@ -1,0 +1,80 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# 3-Tier DevOps Demo  (Docker Compose version — mirrors the K3s layout in k8s/)
+#
+# Tier 1 — Presentation : frontend  (Nginx, port 8080 on host)
+# Tier 2 — Logic        : backend   (Flask, 2 replicas via --scale)
+# Tier 3 — Data         : db        (Postgres, private network only)
+#
+# Networks:
+#   public_net  — host ↔ frontend only
+#   app_net     — frontend ↔ backend ↔ db  (internal, not reachable from host)
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── Tier 1: Presentation ──────────────────────────────────────────────────
+  frontend:
+    build: ./frontend
+    container_name: frontend
+    ports:
+      - "${LB_PORT:-8080}:80"   # only this service is reachable from the host
+    networks:
+      - public_net
+      - app_net
+    depends_on:
+      - backend-service
+
+  # ── Tier 2: Logic ─────────────────────────────────────────────────────────
+  # Run multiple replicas with:  docker compose up --scale backend=2
+  # The service name "backend-service" is what nginx.conf proxies to.
+  backend-service:
+    build: ./backend
+    environment:
+      APP_NAME: backend
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_NAME: ${DB_NAME:-appdb}
+      DB_USER: ${DB_USER:-appuser}
+      DB_PASSWORD: ${DB_PASSWORD:-secretpassword}
+    expose:
+      - "8080"
+    networks:
+      - app_net
+    depends_on:
+      - db
+
+  # ── Tier 3: Data ──────────────────────────────────────────────────────────
+  # No ports: exposed to host — only reachable from app_net.
+  # This is what "externalising the database" means at the network level:
+  # the data tier lives on a separate failure domain from the app tier.
+  db:
+    build: ./db
+    environment:
+      POSTGRES_DB: ${DB_NAME:-appdb}
+      POSTGRES_USER: ${DB_USER:-appuser}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-secretpassword}
+    expose:
+      - "5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    networks:
+      - app_net
+
+networks:
+  public_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.10.0.0/24
+
+  # internal: true means Docker will not add a default gateway route,
+  # so containers on this network cannot reach the internet directly.
+  app_net:
+    driver: bridge
+    internal: true
+    ipam:
+      config:
+        - subnet: 10.20.0.0/24
+
+volumes:
+  db_data:   # named volume keeps data across container restarts

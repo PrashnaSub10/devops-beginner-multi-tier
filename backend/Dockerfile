@@ -6,4 +6,4 @@ COPY app.py ./
 # python:slim ships a non-root "nobody" user we can reuse
 USER nobody
 EXPOSE 8080
-CMD ["python", "app.py"]
+CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "2", "app:app"]

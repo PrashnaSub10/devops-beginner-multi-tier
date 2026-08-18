@@ -65,7 +65,7 @@ networks:
     driver: bridge
     ipam:
       config:
-        - subnet: 10.10.0.0/24
+        - subnet: 10.11.0.0/24
 
   # internal: true means Docker will not add a default gateway route,
   # so containers on this network cannot reach the internet directly.
@@ -74,7 +74,7 @@ networks:
     internal: true
     ipam:
       config:
-        - subnet: 10.20.0.0/24
+        - subnet: 10.21.0.0/24
 
 volumes:
   db_data:   # named volume keeps data across container restarts

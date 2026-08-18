@@ -34,11 +34,16 @@ push: build
 deploy:
 	@echo "==> [deploy] starting stack on port $(PORT)..."
 	$(COMPOSE) up -d
+	@echo "==> waiting for backend to be ready..."
+	@for i in $$(seq 1 20); do \
+		curl -sf http://localhost:$(PORT)/api/health > /dev/null 2>&1 && echo "==> backend ready" && break; \
+		echo "  waiting... ($$i/20)"; sleep 2; \
+	done
 	$(COMPOSE) ps
 
 # ── Full pipeline ─────────────────────────────────────────────────────────────
 .PHONY: all
-all: push deploy
+all: push deploy test
 	@echo "==> pipeline complete — app at http://localhost:$(PORT)"
 
 # ── Scale ─────────────────────────────────────────────────────────────────────

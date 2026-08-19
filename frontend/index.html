@@ -3,28 +3,85 @@
 <head>
   <meta charset="UTF-8">
   <title>3-Tier DevOps Demo</title>
-  <style>body{font-family:sans-serif;max-width:600px;margin:2rem auto}pre{background:#f4f4f4;padding:1rem}</style>
+  <style>
+    body { font-family: sans-serif; max-width: 640px; margin: 2rem auto; padding: 0 1rem; }
+    h1 { font-size: 1.4rem; }
+    p  { color: #555; font-size: 0.9rem; }
+    .card { border: 1px solid #ddd; border-radius: 6px; padding: 1rem; margin-bottom: 1rem; }
+    label { display: block; font-size: 0.85rem; margin-bottom: 0.2rem; color: #333; }
+    input { width: 100%; box-sizing: border-box; padding: 0.4rem 0.6rem; margin-bottom: 0.7rem;
+            border: 1px solid #ccc; border-radius: 4px; font-size: 0.95rem; }
+    button { padding: 0.4rem 1rem; border: none; border-radius: 4px; cursor: pointer;
+             font-size: 0.9rem; margin-right: 0.5rem; }
+    .btn-primary { background: #0066cc; color: #fff; }
+    .btn-secondary { background: #eee; color: #333; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+    th, td { text-align: left; padding: 0.4rem 0.6rem; border-bottom: 1px solid #eee; }
+    th { background: #f7f7f7; }
+    #msg { font-size: 0.85rem; margin-top: 0.5rem; min-height: 1.2rem; }
+    .ok  { color: green; }
+    .err { color: red; }
+  </style>
 </head>
 <body>
   <h1>3-Tier DevOps Demo</h1>
-  <p>This page is served by the <strong>frontend</strong> (Nginx).<br>
-     The button calls the <strong>backend</strong> API, which reads from the <strong>database</strong>.</p>
-  <button onclick="loadUsers()">Load Users</button>
-  <button onclick="addUser()">Add Sample User</button>
-  <pre id="out">—</pre>
+  <p>Served by <strong>Nginx</strong> → <strong>Flask API</strong> → <strong>Postgres</strong></p>
+
+  <div class="card">
+    <label for="name">Name</label>
+    <input id="name" type="text" placeholder="e.g. Bob Smith">
+    <label for="email">Email</label>
+    <input id="email" type="email" placeholder="e.g. bob@example.com">
+    <button class="btn-primary" onclick="addUser()">Add User</button>
+    <button class="btn-secondary" onclick="loadUsers()">Refresh List</button>
+    <div id="msg"></div>
+  </div>
+
+  <div class="card">
+    <table id="tbl">
+      <thead><tr><th>ID</th><th>Name</th><th>Email</th></tr></thead>
+      <tbody id="tbody"><tr><td colspan="3" style="color:#aaa">Click Refresh List to load</td></tr></tbody>
+    </table>
+  </div>
+
   <script>
     async function loadUsers() {
       const r = await fetch("/api/users");
-      document.getElementById("out").textContent = JSON.stringify(await r.json(), null, 2);
+      const users = await r.json();
+      const tbody = document.getElementById("tbody");
+      if (!users.length) {
+        tbody.innerHTML = '<tr><td colspan="3" style="color:#aaa">No users yet</td></tr>';
+        return;
+      }
+      tbody.innerHTML = users.map(u =>
+        `<tr><td>${u.id}</td><td>${u.name}</td><td>${u.email}</td></tr>`
+      ).join("");
     }
+
     async function addUser() {
+      const name  = document.getElementById("name").value.trim();
+      const email = document.getElementById("email").value.trim();
+      const msg   = document.getElementById("msg");
+      if (!name || !email) { msg.className = "err"; msg.textContent = "Name and email are required."; return; }
       const r = await fetch("/api/users", {
         method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({name: "Demo User", email: `demo${Date.now()}@example.com`})
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, email })
       });
-      document.getElementById("out").textContent = JSON.stringify(await r.json(), null, 2);
+      const data = await r.json();
+      if (r.ok) {
+        msg.className = "ok";
+        msg.textContent = `Added: ${data.name} (id ${data.id})`;
+        document.getElementById("name").value  = "";
+        document.getElementById("email").value = "";
+        loadUsers();
+      } else {
+        msg.className = "err";
+        msg.textContent = data.error || "Failed to add user.";
+      }
     }
+
+    loadUsers();
   </script>
 </body>
 </html>

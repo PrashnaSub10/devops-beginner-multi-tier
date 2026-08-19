@@ -33,13 +33,16 @@ def list_users():
 @app.post("/api/users")
 def create_user():
     body = request.get_json(force=True)
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                "INSERT INTO users (name, email) VALUES (%s, %s) RETURNING id",
-                (body["name"], body["email"]),
-            )
-            new_id = cur.fetchone()[0]
-        conn.commit()
-    return jsonify({"id": new_id, "name": body["name"], "email": body["email"]}), 201
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO users (name, email) VALUES (%s, %s) RETURNING id",
+                    (body["name"], body["email"]),
+                )
+                new_id = cur.fetchone()[0]
+            conn.commit()
+        return jsonify({"id": new_id, "name": body["name"], "email": body["email"]}), 201
+    except psycopg2.errors.UniqueViolation:
+        return jsonify({"error": f"Email {body['email']} already exists."}), 409
 

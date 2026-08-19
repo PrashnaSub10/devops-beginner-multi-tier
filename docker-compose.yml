@@ -45,7 +45,8 @@ services:
       - db
 
   # ── Tier 3: Data ──────────────────────────────────────────────────────────
-  # No ports exposed to host — only reachable from app_net.
+  # Mapped to DB_PORT (default 5433) on the host to avoid collision with any
+  # existing Postgres instance. K3s external-db service points to this port.
   db:
     build: ./db
     environment:
@@ -53,7 +54,7 @@ services:
       POSTGRES_USER: ${DB_USER:-appuser}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-secretpassword}
     ports:
-      - "5432:5432"   # exposed for K3s external-db access
+      - "${DB_PORT:-5433}:5432"
     volumes:
       - db_data:/var/lib/postgresql/data
     networks:

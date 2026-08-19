@@ -6,6 +6,9 @@
 #
 # Result: inside the cluster, "external-db.three-tier.svc.cluster.local:5432"
 # resolves to the external Postgres server — same DNS pattern as any other Service.
+#
+# DB_PORT in .env.example defaults to 5433 to avoid collision with any host
+# Postgres instance. Update the port below if you change DB_PORT.
 apiVersion: v1
 kind: Service
 metadata:
@@ -14,7 +17,7 @@ metadata:
 spec:
   ports:
     - port: 5432
-      targetPort: 5432
+      targetPort: 5433
 ---
 apiVersion: v1
 kind: Endpoints
@@ -23,6 +26,6 @@ metadata:
   namespace: three-tier
 subsets:
   - addresses:
-      - ip: 172.16.10.214   # VM host IP — Postgres exposed via docker-compose ports
+      - ip: <your-vm-ip>   # VM host IP — must match GITLAB_HOST in .env
     ports:
-      - port: 5432
+      - port: 5433         # must match DB_PORT in .env (default 5433)

@@ -53,7 +53,7 @@ push:
 # ── Stage 3: Deploy ───────────────────────────────────────────────────────────
 deploy:
   stage: deploy
-  image: bitnami/kubectl:1.31
+  image: bitnami/kubectl:1.31.0
   needs: ["push"]
   environment:
     name: production

@@ -17,7 +17,7 @@ spec:
         - name: backend
           # Image tag is overwritten by the CI pipeline with the commit SHA.
           # Never deploy :latest in production — it makes rollbacks non-deterministic.
-          image: <your-vm-ip>:<gitlab-registry-port>/root/devops-beginner-multi-tier/backend:latest
+          image: 172.16.10.214:5051/root/devops-beginner-multi-tier/backend:latest
           ports:
             - containerPort: 8080
           env:

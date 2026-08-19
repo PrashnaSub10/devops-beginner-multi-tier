@@ -71,7 +71,7 @@ deploy:
     - kubectl apply --validate=false -f k8s/ingress.yaml
     - kubectl -n three-tier set image deployment/backend  backend=$BACKEND_IMAGE:$IMAGE_TAG
     - kubectl -n three-tier set image deployment/frontend frontend=$FRONTEND_IMAGE:$IMAGE_TAG
-    - kubectl -n three-tier rollout status deployment/backend  --timeout=120s
-    - kubectl -n three-tier rollout status deployment/frontend --timeout=120s
+    - kubectl -n three-tier rollout status deployment/backend  --timeout=300s
+    - kubectl -n three-tier rollout status deployment/frontend --timeout=300s
   rules:
     - if: $CI_COMMIT_BRANCH == "main"

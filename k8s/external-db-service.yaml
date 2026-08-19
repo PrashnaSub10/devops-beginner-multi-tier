@@ -23,6 +23,6 @@ metadata:
   namespace: three-tier
 subsets:
   - addresses:
-      - ip: 10.21.0.2   # Docker Compose db container IP on app_net
+      - ip: 172.16.10.214   # VM host IP — Postgres exposed via docker-compose ports
     ports:
       - port: 5432

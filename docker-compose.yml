@@ -52,8 +52,8 @@ services:
       POSTGRES_DB: ${DB_NAME:-appdb}
       POSTGRES_USER: ${DB_USER:-appuser}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-secretpassword}
-    expose:
-      - "5432"
+    ports:
+      - "5432:5432"   # exposed for K3s external-db access
     volumes:
       - db_data:/var/lib/postgresql/data
     networks:

@@ -61,8 +61,9 @@ deploy:
     # Write KUBECONFIG from the File variable to a known path and verify it loads.
     - kubectl config view
     - kubectl config use-context $KUBE_CONTEXT
-    # Inject the real DB password into the secret manifest before applying.
+    # Inject the real DB password and VM IP into manifests before applying.
     - sed -i "s/REPLACE_AT_DEPLOY_TIME/${DB_PASSWORD}/" k8s/backend-secret.yaml
+    - sed -i "s/<your-vm-ip>/${GITLAB_HOST}/" k8s/external-db-service.yaml
     - kubectl apply --validate=false -f k8s/namespace.yaml
     - kubectl apply --validate=false -f k8s/backend-secret.yaml
     - kubectl apply --validate=false -f k8s/external-db-service.yaml

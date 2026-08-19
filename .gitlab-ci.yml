@@ -58,6 +58,9 @@ deploy:
   environment:
     name: production
   script:
+    # KUBECONFIG is a File variable — GitLab sets the env var to the temp file path.
+    # kubectl config use-context selects the right context from that file.
+    - kubectl config use-context $KUBE_CONTEXT
     # Inject the real DB password into the secret manifest before applying.
     - sed -i "s/REPLACE_AT_DEPLOY_TIME/${DB_PASSWORD}/" k8s/backend-secret.yaml
     - kubectl apply -f k8s/namespace.yaml

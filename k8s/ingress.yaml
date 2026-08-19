@@ -9,8 +9,7 @@ metadata:
 spec:
   ingressClassName: traefik
   rules:
-    - host: app.example.com   # replace with your actual hostname or use kubectl port-forward for local testing
-      http:
+    - http:
         paths:
           - path: /
             pathType: Prefix

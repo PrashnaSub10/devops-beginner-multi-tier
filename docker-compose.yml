@@ -58,6 +58,7 @@ services:
     volumes:
       - db_data:/var/lib/postgresql/data
     networks:
+      - public_net
       - app_net
 
   # ── GitLab CE ─────────────────────────────────────────────────────────────

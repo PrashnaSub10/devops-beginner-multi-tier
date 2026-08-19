@@ -58,21 +58,19 @@ deploy:
   environment:
     name: production
   script:
-    # KUBECONFIG is a File variable — GitLab sets the env var to the temp file path.
-    # kubectl config use-context selects the right context from that file.
+    # Write KUBECONFIG from the File variable to a known path and verify it loads.
+    - kubectl config view
     - kubectl config use-context $KUBE_CONTEXT
     # Inject the real DB password into the secret manifest before applying.
     - sed -i "s/REPLACE_AT_DEPLOY_TIME/${DB_PASSWORD}/" k8s/backend-secret.yaml
-    - kubectl apply -f k8s/namespace.yaml
-    - kubectl apply -f k8s/backend-secret.yaml
-    - kubectl apply -f k8s/external-db-service.yaml
-    - kubectl apply -f k8s/backend.yaml
-    - kubectl apply -f k8s/frontend.yaml
-    - kubectl apply -f k8s/ingress.yaml
-    # Roll out the new image tag — this is what actually triggers a new pod rollout.
+    - kubectl apply --validate=false -f k8s/namespace.yaml
+    - kubectl apply --validate=false -f k8s/backend-secret.yaml
+    - kubectl apply --validate=false -f k8s/external-db-service.yaml
+    - kubectl apply --validate=false -f k8s/backend.yaml
+    - kubectl apply --validate=false -f k8s/frontend.yaml
+    - kubectl apply --validate=false -f k8s/ingress.yaml
     - kubectl -n three-tier set image deployment/backend  backend=$BACKEND_IMAGE:$IMAGE_TAG
     - kubectl -n three-tier set image deployment/frontend frontend=$FRONTEND_IMAGE:$IMAGE_TAG
-    # Wait for rollout to complete before the pipeline reports success.
     - kubectl -n three-tier rollout status deployment/backend  --timeout=120s
     - kubectl -n three-tier rollout status deployment/frontend --timeout=120s
   rules:

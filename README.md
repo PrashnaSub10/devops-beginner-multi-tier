@@ -1,180 +1,343 @@
-# DevOps Beginner Multi-Tier Demo
+# devops-beginner-multi-tier
 
-A minimal, production-shaped three-tier application you can run locally with Docker Compose **and** deploy to a K3s cluster via GitLab CI/CD — with every decision explained so you can defend it, not just copy it.
+A minimal, production-shaped three-tier application you can run on your laptop with Docker Compose and deploy to a real Kubernetes cluster (K3s) through a fully automated GitLab CI/CD pipeline — with every decision explained so you understand it, not just copy it.
 
 ---
 
-## What "three-tier" actually means
+## Table of Contents
 
-| Tier | Folder | Job | Why separate? |
-|---|---|---|---|
-| Presentation | `frontend/` | Nginx serves static HTML; proxies `/api/` to the backend | Swap the UI without touching business logic or data |
-| Logic | `backend/` | Flask REST API reads/writes the database | Scale independently; database engine is invisible to the frontend |
-| Data | `db/` (local) or external Postgres (K3s) | Postgres stores state | Lives on its own failure domain — a crashed app pod never corrupts the database |
+- [What you will learn](#what-you-will-learn)
+- [Architecture](#architecture)
+- [Project structure](#project-structure)
+- [Prerequisites](#prerequisites)
+- [Quick start — Docker Compose](#quick-start--docker-compose)
+- [GitLab CE setup](#gitlab-ce-setup)
+- [CI/CD pipeline](#cicd-pipeline)
+- [K3s deployment](#k3s-deployment)
+- [Environment variables](#environment-variables)
+- [Port map](#port-map)
+- [Why these choices](#why-these-choices)
+- [Troubleshooting](#troubleshooting)
+- [Contributing](#contributing)
+- [License](#license)
 
-The key insight: **a change in one tier should not require a change in another.** This project is structured to make that concrete.
+---
+
+## What you will learn
+
+| Topic | Where it shows up |
+|---|---|
+| Three-tier application design | `frontend/` `backend/` `db/` separation |
+| Docker & Docker Compose | `docker-compose.yml`, per-service Dockerfiles |
+| Self-hosted GitLab CE | `docker-compose.yml` gitlab + gitlab-runner services |
+| CI/CD pipeline (build → push → deploy) | `.gitlab-ci.yml` |
+| Kubernetes manifests | `k8s/` folder |
+| External database pattern | `k8s/external-db-service.yaml` |
+| Secret management | GitLab CI variables + K8s Secret |
+| Immutable image tags | `$CI_COMMIT_SHORT_SHA` instead of `:latest` |
 
 ---
 
 ## Architecture
 
 ```
-Host browser
-    │  :8080
-    ▼
-┌─────────────┐   public_net (10.10.0.0/24)
-│  frontend   │   Nginx — only service reachable from outside
-└──────┬──────┘
-       │  app_net (10.20.0.0/24, internal — no host route)
-       ▼
-┌─────────────────┐
-│ backend-service │   Flask API  (scale with --scale backend=2)
-└────────┬────────┘
-         │
-         ▼
-┌────────────┐
-│     db     │   Postgres — no host port, unreachable from outside app_net
-└────────────┘
+                        ┌─────────────────────────────────────────┐
+                        │              Developer laptop            │
+                        │                                          │
+                        │   VS Code ──► git push ──► GitHub        │
+                        └──────────────────┬──────────────────────┘
+                                           │ webhook / push
+                                           ▼
+┌──────────────────────────────────────────────────────────────────────┐
+│                          Linux VM  (172.16.10.214)                   │
+│                                                                      │
+│  ┌─────────────────────────────────────────────────────────────┐     │
+│  │                    Docker Compose stack                      │     │
+│  │                                                              │     │
+│  │  ┌──────────┐  public_net   ┌─────────────────┐             │     │
+│  │  │ frontend │◄──:8181───────│   Host browser  │             │     │
+│  │  │  Nginx   │               └─────────────────┘             │     │
+│  │  └────┬─────┘                                               │     │
+│  │       │ app_net (internal)                                   │     │
+│  │  ┌────▼──────────┐                                          │     │
+│  │  │ backend-service│                                          │     │
+│  │  │  Flask API     │                                          │     │
+│  │  └────┬───────────┘                                          │     │
+│  │       │                                                      │     │
+│  │  ┌────▼───┐  :5433 (host)                                   │     │
+│  │  │   db   │◄────────────────── K3s external-db endpoint     │     │
+│  │  │Postgres│                                                  │     │
+│  │  └────────┘                                                  │     │
+│  │                                                              │     │
+│  │  ┌──────────┐  gitlab_net   ┌────────────────┐              │     │
+│  │  │  GitLab  │◄──────────────│ gitlab-runner  │              │     │
+│  │  │  CE      │  :8929        └────────────────┘              │     │
+│  │  │ Registry │  :5051                                         │     │
+│  │  └──────────┘                                               │     │
+│  └─────────────────────────────────────────────────────────────┘     │
+│                                                                      │
+│  ┌─────────────────────────────────────────────────────────────┐     │
+│  │                     K3s cluster                              │     │
+│  │  namespace: three-tier                                       │     │
+│  │                                                              │     │
+│  │  ┌─────────────┐     ┌──────────────┐     ┌─────────────┐  │     │
+│  │  │  frontend   │────►│   backend    │────►│ external-db │  │     │
+│  │  │ Deployment  │     │  Deployment  │     │   Service   │  │     │
+│  │  │  (Nginx)    │     │  (Flask)     │     │ + Endpoints │  │     │
+│  │  └─────────────┘     └──────────────┘     └──────┬──────┘  │     │
+│  │         ▲                                         │         │     │
+│  │    Traefik Ingress                         :5433 on host    │     │
+│  └─────────────────────────────────────────────────────────────┘     │
+└──────────────────────────────────────────────────────────────────────┘
 ```
 
-In K3s the same shape is preserved: `frontend` and `backend` run as Deployments inside the cluster; Postgres runs on an external host and is reached via a `Service + Endpoints` object (see `k8s/external-db-service.yaml`).
+### CI/CD flow
+
+```
+git push gitlab main
+        │
+        ▼
+┌───────────────┐     ┌───────────────┐     ┌─────────────────────────┐
+│  build stage  │────►│  push stage   │────►│      deploy stage       │
+│               │     │               │     │                         │
+│ docker build  │     │ docker login  │     │ kubectl apply manifests  │
+│ frontend      │     │ docker push   │     │ kubectl set image        │
+│ backend       │     │ frontend:SHA  │     │ kubectl rollout status   │
+│               │     │ backend:SHA   │     │                         │
+│ saves .tar    │     │               │     │ injects DB_PASSWORD      │
+│ artifacts     │     │ to GitLab     │     │ injects VM IP            │
+└───────────────┘     │ registry      │     └─────────────────────────┘
+                      │ :5051         │
+                      └───────────────┘
+```
 
 ---
 
 ## Project structure
 
 ```
-devops_beginner_multi_tier/
-├── frontend/           Tier 1 — Nginx + static HTML
-│   ├── index.html
-│   ├── nginx.conf
-│   ├── Dockerfile
+devops-beginner-multi-tier/
+│
+├── frontend/                        # Tier 1 — Presentation
+│   ├── index.html                   # Single-page UI (Load Users, Add User)
+│   ├── nginx.conf                   # Reverse proxy /api/ → backend-service
+│   ├── Dockerfile                   # FROM nginx:alpine
 │   └── .dockerignore
-├── backend/            Tier 2 — Flask REST API
-│   ├── app.py
-│   ├── requirements.txt
-│   ├── Dockerfile
+│
+├── backend/                         # Tier 2 — Logic
+│   ├── app.py                       # Flask: GET /api/users, POST /api/users, GET /api/health
+│   ├── requirements.txt             # flask, gunicorn, psycopg2-binary
+│   ├── Dockerfile                   # FROM python:3.12-slim, runs gunicorn
 │   └── .dockerignore
-├── db/                 Tier 3 — Postgres schema
-│   ├── Dockerfile
-│   └── init.sql
-├── k8s/                K3s manifests (one file per concern)
-│   ├── namespace.yaml
-│   ├── backend-secret.yaml
-│   ├── external-db-service.yaml
-│   ├── backend.yaml
-│   ├── frontend.yaml
-│   └── ingress.yaml
-├── .gitlab-ci.yml      CI/CD pipeline (build → push → deploy)
-├── .gitignore
-├── .env.example
-└── docker-compose.yml
+│
+├── db/                              # Tier 3 — Data
+│   ├── init.sql                     # CREATE TABLE users; INSERT seed row (Alice)
+│   └── Dockerfile                   # FROM postgres:16-alpine
+│
+├── k8s/                             # Kubernetes manifests (K3s)
+│   ├── namespace.yaml               # namespace: three-tier
+│   ├── backend-secret.yaml          # Secret: DB_PASSWORD (injected by pipeline)
+│   ├── external-db-service.yaml     # Service + Endpoints → host:5433 (Postgres)
+│   ├── backend.yaml                 # Deployment + Service for Flask API
+│   ├── frontend.yaml                # Deployment + Service for Nginx
+│   └── ingress.yaml                 # Traefik Ingress → frontend Service
+│
+├── .gitlab-ci.yml                   # Pipeline: build → push → deploy
+├── docker-compose.yml               # Local stack: frontend + backend + db + gitlab + runner
+├── register-runner.sh               # One-time GitLab Runner registration helper
+├── .env.example                     # Copy to .env — all tuneable values live here
+├── .gitignore                       # Excludes .env, *.tar, __pycache__
+├── Makefile                         # Convenience targets: up, down, logs, clean
+├── LICENSE
+└── README.md
 ```
-
-The old `app/` and `app2/` folders were identical code in two directories. That is not how you scale — you run one image with `--scale`. Duplicate folders were removed.
 
 ---
 
-## Quick start (Docker Compose)
+## Prerequisites
+
+| Tool | Minimum version | Purpose |
+|---|---|---|
+| Docker | 24 | Build and run containers |
+| Docker Compose | v2 (plugin) | Local multi-service stack |
+| Git | any | Version control |
+| K3s | v1.31+ | Lightweight Kubernetes (Linux VM only) |
+| kubectl | matching K3s | Apply manifests, check rollouts |
+
+No Helm, no cloud account, no paid tooling required.
+
+---
+
+## Quick start — Docker Compose
 
 ```bash
+# 1. Clone
+git clone https://github.com/<your-org>/devops-beginner-multi-tier.git
+cd devops-beginner-multi-tier
+
+# 2. Configure
 cp .env.example .env
+# Edit .env — set GITLAB_HOST to your VM's IP if running GitLab
+
+# 3. Start
 docker compose up --build
+
+# 4. Open in browser
+#    http://localhost:8181
+#    Click "Load Users" → Alice appears from the database
+#    Click "Add Sample User" → new row inserted, click Load again to confirm
+
+# 5. Health check
+curl http://localhost:8181/api/health
 ```
 
-Open http://localhost:8080 — click "Load Users" to verify the full three-tier path works.
-
-Run two backend replicas (Docker Compose load-balances automatically by service name):
+Scale the backend to two replicas (Docker Compose load-balances by service name):
 
 ```bash
 docker compose up --build --scale backend-service=2
 ```
 
-Verify health:
+---
+
+## GitLab CE setup
+
+GitLab CE and its runner are included in `docker-compose.yml` — no separate install needed.
 
 ```bash
-curl http://localhost:8080/api/health
-curl http://localhost:8080/api/users
+docker compose up -d gitlab gitlab-runner
+# First boot takes ~3 minutes. Watch progress:
+docker compose logs -f gitlab | grep "gitlab Reconfigured"
 ```
+
+Then open `http://<your-vm-ip>:8929` and sign in as `root` / `Password1234!`.
+
+Register the runner (one time only):
+
+```bash
+chmod +x register-runner.sh
+GITLAB_HOST=<your-vm-ip> ./register-runner.sh
+```
+
+Set these CI/CD variables in **GitLab → Project → Settings → CI/CD → Variables**:
+
+| Variable | Type | Value |
+|---|---|---|
+| `GITLAB_HOST` | Variable | your VM IP, e.g. `172.16.10.214` |
+| `GITLAB_REGISTRY_PORT` | Variable | `5051` |
+| `DB_PASSWORD` | Variable (Masked) | value from your `.env` |
+| `KUBECONFIG` | File | contents of `/etc/rancher/k3s/k3s.yaml` (replace `127.0.0.1` with VM IP) |
+| `KUBE_CONTEXT` | Variable | `default` |
+
+---
+
+## CI/CD pipeline
+
+Every `git push` to `main` triggers `.gitlab-ci.yml`:
+
+```
+build ──► push ──► deploy
+```
+
+| Stage | Image | What it does |
+|---|---|---|
+| build | `docker:26` | `docker build` for frontend and backend; saves `.tar` artifacts |
+| push | `docker:26` | Loads tarballs, pushes `image:$CI_COMMIT_SHORT_SHA` to GitLab registry |
+| deploy | `alpine/k8s:1.31.2` | `kubectl apply` all manifests; `kubectl set image` to roll out new SHA |
+
+The deploy stage substitutes two placeholders at runtime:
+- `REPLACE_AT_DEPLOY_TIME` in `backend-secret.yaml` → `$DB_PASSWORD`
+- `<your-vm-ip>` in `external-db-service.yaml` → `$GITLAB_HOST`
+
+This keeps real credentials and IPs out of the repository.
 
 ---
 
 ## K3s deployment
 
-### 1. Install K3s (on your Linux VM)
+### Install K3s
 
 ```bash
 curl -sfL https://get.k3s.io | sh -
-sudo cat /etc/rancher/k3s/k3s.yaml   # copy to ~/.kube/config on your laptop
-# Replace "127.0.0.1" with the VM's real IP — the most common first-time mistake.
+# Verify
+sudo kubectl get nodes
 ```
 
-K3s ships Traefik (ingress), local-path-provisioner (storage), and containerd — nothing else to install.
-
-### 2. Start external Postgres (on a separate host or VM)
+### Configure the registry (insecure, self-hosted)
 
 ```bash
-# Any Postgres 16 instance works. Simplest option:
-docker run -d --name pg \
-  -e POSTGRES_DB=appdb -e POSTGRES_USER=appuser -e POSTGRES_PASSWORD=secretpassword \
-  -p 5432:5432 postgres:16-alpine
+sudo mkdir -p /etc/rancher/k3s
+sudo tee /etc/rancher/k3s/registries.yaml <<EOF
+mirrors:
+  "<your-vm-ip>:5051":
+    endpoint:
+      - "http://<your-vm-ip>:5051"
+auths:
+  "<your-vm-ip>:5051":
+    username: root
+    password: "<your-gitlab-root-password>"
+EOF
+sudo systemctl restart k3s
 ```
 
-Update `k8s/external-db-service.yaml` with that host's IP.
-
-### 3. Apply manifests
+### Apply manifests manually (first time)
 
 ```bash
-kubectl apply -f k8s/namespace.yaml
-kubectl apply -f k8s/backend-secret.yaml      # edit DB_PASSWORD first
-kubectl apply -f k8s/external-db-service.yaml # edit IP first
-kubectl apply -f k8s/backend.yaml
-kubectl apply -f k8s/frontend.yaml
-kubectl apply -f k8s/ingress.yaml
-kubectl get pods -n three-tier -w
+sed 's/<your-vm-ip>/172.16.10.214/' k8s/external-db-service.yaml | sudo kubectl apply -f -
+sudo kubectl apply -f k8s/namespace.yaml
+sudo kubectl apply -f k8s/backend-secret.yaml   # pipeline handles this on every push
+sudo kubectl apply -f k8s/backend.yaml
+sudo kubectl apply -f k8s/frontend.yaml
+sudo kubectl apply -f k8s/ingress.yaml
+sudo kubectl -n three-tier get pods -w
 ```
 
-### 4. Test from inside the cluster
-
-```bash
-# Verify the external-db Service resolves and the backend can reach it:
-kubectl run curl-test --rm -it --image=curlimages/curl --restart=Never -n three-tier -- \
-  curl http://backend-service.three-tier.svc.cluster.local:8080/api/health
-```
+After the first manual apply, every subsequent deployment is handled by the pipeline.
 
 ---
 
-## GitLab CI/CD
+## Environment variables
 
-Every `git push` to `main` triggers `.gitlab-ci.yml`:
+All values are set in `.env` (copy from `.env.example`). Never commit `.env`.
 
-1. **build** — `docker build` for frontend and backend, saves tarballs as artifacts
-2. **push** — loads tarballs, logs in to GitLab Container Registry, pushes images tagged with the commit SHA (never `:latest`)
-3. **deploy** — `kubectl apply` all manifests, then `kubectl set image` to roll out the new SHA tag
-
-Required GitLab CI/CD Variables (Settings → CI/CD → Variables):
-
-| Variable | Type | Notes |
+| Variable | Default | Description |
 |---|---|---|
-| `KUBECONFIG` | File | Content of `~/.kube/config` for the K3s cluster |
-| `KUBE_CONTEXT` | Variable | Context name inside that kubeconfig |
-| `DB_PASSWORD` | Variable (Masked) | Injected into the K8s Secret at deploy time |
-
-GitLab's built-in `$CI_REGISTRY_USER` / `$CI_REGISTRY_PASSWORD` / `$CI_REGISTRY` handle container registry auth automatically — no extra variables needed for that.
+| `LB_PORT` | `8181` | Host port for the frontend |
+| `DB_PORT` | `5433` | Host port for Postgres (avoids collision with system Postgres on 5432) |
+| `DB_NAME` | `appdb` | Postgres database name |
+| `DB_USER` | `appuser` | Postgres user |
+| `DB_PASSWORD` | `secretpassword` | Postgres password — also set as a masked GitLab CI variable |
+| `GITLAB_HOST` | _(required)_ | VM IP address — used in GitLab external URL and registry URL |
+| `GITLAB_PORT` | `8929` | GitLab web UI port |
+| `GITLAB_SSH_PORT` | `2224` | GitLab SSH port (2222 is often taken) |
+| `GITLAB_REGISTRY_PORT` | `5051` | GitLab container registry port (5050 is often taken) |
+| `GITLAB_ROOT_PASSWORD` | `Password1234!` | GitLab initial root password |
 
 ---
 
-## Why these choices (the short version)
+## Port map
 
-**Docker Compose for local dev, K3s for "production-shaped" deployment** — Compose is the fastest way to verify the three tiers talk to each other. K3s is a single binary that gives you real Kubernetes semantics (Deployments, Services, Ingress, Secrets) without the overhead of a full cluster. Same concepts, right-sized tool.
+| Port | Service | Reachable from |
+|---|---|---|
+| `8181` | Frontend (Nginx) | Host browser |
+| `5433` | Postgres (Docker Compose db) | Host + K3s pods via external-db Service |
+| `8929` | GitLab CE web UI | Host browser |
+| `2224` | GitLab SSH | Git clients |
+| `5051` | GitLab Container Registry | Docker daemon, K3s containerd |
+| `6443` | K3s API server | kubectl, GitLab CI pipeline |
 
-**GitLab CI/CD instead of Jenkins** — the pipeline lives in `.gitlab-ci.yml` next to the code it builds. A `git blame` tells you when deployment logic changed. No separate server to install or patch.
+---
 
-**External database, not a pod** — a database pod that dies takes its data with it unless you've wired up PersistentVolumes correctly. Running Postgres outside the cluster means a bad deployment can never corrupt or lose the data tier. The `Service + Endpoints` pattern in `k8s/external-db-service.yaml` is how Kubernetes reaches it with a stable DNS name.
+## Why these choices
 
-**Commit SHA image tags** — `:latest` is mutable. If a rollout goes wrong, `kubectl rollout undo` needs a previous, distinct, immutable tag to roll back to. `$CI_COMMIT_SHORT_SHA` gives you that for free.
+**Docker Compose for local dev, K3s for deployment** — Compose is the fastest way to verify the three tiers talk to each other. K3s gives you real Kubernetes semantics (Deployments, Services, Ingress, Secrets) in a single binary. Same mental model, right-sized tool for each environment.
 
-**Resource requests and limits on every Deployment** — on a small K3s node, one runaway pod can starve the others. Limits contain the blast radius.
+**Self-hosted GitLab instead of GitHub Actions** — the pipeline, the registry, and the runner all live on the same VM. Nothing leaves your network. You can inspect every layer.
+
+**External database, not a DB pod** — a database pod that dies takes its data with it unless PersistentVolumes are configured correctly. Running Postgres outside the cluster means a bad deployment can never corrupt the data tier. The `Service + Endpoints` pattern in `k8s/external-db-service.yaml` gives it a stable DNS name inside the cluster: `external-db.three-tier.svc.cluster.local`.
+
+**Commit SHA image tags** — `:latest` is mutable. `kubectl rollout undo` needs a previous, distinct, immutable tag to roll back to. `$CI_COMMIT_SHORT_SHA` provides that automatically.
+
+**No hardcoded IPs in committed files** — `<your-vm-ip>` placeholders are substituted at deploy time by the pipeline using `sed`. The repository stays portable.
 
 ---
 
@@ -182,8 +345,29 @@ GitLab's built-in `$CI_REGISTRY_USER` / `$CI_REGISTRY_PASSWORD` / `$CI_REGISTRY`
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| `ImagePullBackOff` | Wrong registry path or missing pull secret | `kubectl describe pod <pod> -n three-tier` → read Events |
-| `CrashLoopBackOff` | DB unreachable or wrong password | `kubectl logs deployment/backend -n three-tier` |
-| Ingress 404 | `ingressClassName: nginx` instead of `traefik` | `kubectl get ingressclass` — K3s uses `traefik` |
-| `Secret not found` | Applied `backend.yaml` before `backend-secret.yaml` | `kubectl apply -f k8s/backend-secret.yaml` first |
-| `kubectl` can't connect | Kubeconfig still has `127.0.0.1` | Replace with the K3s node's real IP |
+| `ImagePullBackOff` | Registry credentials missing in K3s | Check `/etc/rancher/k3s/registries.yaml`, restart k3s |
+| `CrashLoopBackOff` on backend | DB unreachable or wrong password | `kubectl logs -n three-tier deployment/backend` |
+| `CrashLoopBackOff` on frontend | nginx can't resolve `backend-service` | Check `resolver` directive in `frontend/nginx.conf` |
+| Backend `/api/health` returns 500 | Secret has empty `DB_PASSWORD` | Re-apply secret: `kubectl create secret generic backend-db-secret --from-literal=DB_PASSWORD=<value> --dry-run=client -o yaml \| kubectl apply -f -` |
+| Pipeline deploy times out | Pods not becoming Ready | `kubectl -n three-tier describe pod -l app=backend` → check Events |
+| CoreDNS `CrashLoopBackOff` | rp_filter blocking pod egress | `sudo sysctl -w net.ipv4.conf.all.rp_filter=0` |
+| `git push gitlab` says "Everything up-to-date" | Local branch already matches GitLab | `git commit --allow-empty -m "ci: retrigger"` then push |
+| Port 5432 already in use | Host has its own Postgres | Use `DB_PORT=5433` in `.env` (already the default) |
+
+---
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feat/your-topic`
+3. Commit with a clear message: `git commit -m "feat: describe what and why"`
+4. Push and open a Merge Request against `main`
+5. The pipeline must pass before merge
+
+Please keep each change focused — one concern per MR.
+
+---
+
+## License
+
+[MIT](LICENSE)

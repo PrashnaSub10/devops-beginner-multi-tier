@@ -44,9 +44,6 @@ push:
   script:
     - docker load -i frontend.tar
     - docker load -i backend.tar
-    - echo "{\"insecure-registries\":[\"$GITLAB_REGISTRY\"]}" > /etc/docker/daemon.json
-    - kill -HUP $(cat /var/run/docker.pid) 2>/dev/null || true
-    - sleep 2
     - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin $GITLAB_REGISTRY
     - docker push $FRONTEND_IMAGE:$IMAGE_TAG
     - docker push $BACKEND_IMAGE:$IMAGE_TAG
